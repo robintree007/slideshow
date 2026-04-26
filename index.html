@@ -263,6 +263,14 @@
       <div class="toggle on" id="fsToggle"></div>
     </div>
     <div class="row">
+      <label>화면 방향</label>
+      <select id="orientation">
+        <option value="landscape">가로 (Landscape)</option>
+        <option value="portrait">세로 (Portrait)</option>
+        <option value="any">자유 회전</option>
+      </select>
+    </div>
+    <div class="row">
       <label>녹화 화질</label>
       <select id="quality">
         <option value="1080p">1080p (8Mbps)</option>
@@ -311,6 +319,7 @@ const state = {
   autoplay: true,
   loop: true,
   autoFullscreen: true,
+  orientation: 'landscape',  // 'landscape' | 'portrait' | 'any'
   quality: '1080p',   // '1080p' | '720p' | '480p'
   timer: null,
   progressTimer: null,
@@ -377,6 +386,7 @@ $('duration').oninput = (e) => {
 };
 $('transition').onchange = (e) => state.transition = e.target.value;
 $('quality').onchange = (e) => state.quality = e.target.value;
+$('orientation').onchange = (e) => state.orientation = e.target.value;
 
 function bindToggle(id, key) {
   $(id).onclick = () => {
@@ -408,9 +418,15 @@ async function openPlayer(record) {
   if (state.autoFullscreen) {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-      // 화면 회전 잠금 (가로 우선, 실패해도 무시)
+      // 화면 회전 잠금 (사용자 선택 방향, 'any'면 잠금 해제)
       if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
+        if (state.orientation === 'any') {
+          if (screen.orientation.unlock) {
+            try { screen.orientation.unlock(); } catch (e) {}
+          }
+        } else {
+          screen.orientation.lock(state.orientation).catch(() => {});
+        }
       }
     } catch (e) {
       // 일부 브라우저에서 실패 가능 — 무시하고 계속
@@ -582,7 +598,13 @@ $('fsBtn').onclick = async () => {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
+        if (state.orientation === 'any') {
+          if (screen.orientation.unlock) {
+            try { screen.orientation.unlock(); } catch (e) {}
+          }
+        } else {
+          screen.orientation.lock(state.orientation).catch(() => {});
+        }
       }
     } catch (e) { toast('전체화면 지원 안됨'); }
   } else {
@@ -603,7 +625,10 @@ async function startRecording() {
     // Render slides to a canvas for capture
     const canvas = document.createElement('canvas');
     const preset = QUALITY_PRESETS[state.quality] || QUALITY_PRESETS['1080p'];
-    const W = preset.w, H = preset.h;
+    // 세로 방향이면 가로/세로 스왑 (9:16 출력)
+    const isPortrait = state.orientation === 'portrait';
+    const W = isPortrait ? preset.h : preset.w;
+    const H = isPortrait ? preset.w : preset.h;
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
 
@@ -659,7 +684,8 @@ async function startRecording() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `slideshow_${state.quality}_${Date.now()}.webm`;
+      const orientTag = state.orientation === 'portrait' ? '_v' : '';
+      a.download = `slideshow_${state.quality}${orientTag}_${Date.now()}.webm`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast('영상 다운로드 완료');
