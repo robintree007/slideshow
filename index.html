@@ -8,7 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0a0a0a">
 <title>Glowfan Slideshow</title>
-<link rel="manifest" href='data:application/manifest+json,{"name":"Glowfan Slideshow","short_name":"Slideshow","start_url":".","display":"standalone","background_color":"#0a0a0a","theme_color":"#0a0a0a","icons":[{"src":"data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22><rect width=%22192%22 height=%22192%22 fill=%22%230a0a0a%22/><circle cx=%2296%22 cy=%2296%22 r=%2240%22 fill=%22%23e8c468%22/></svg>","sizes":"192x192","type":"image/svg+xml"}]}'>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22><rect width=%22192%22 height=%22192%22 rx=%2240%22 fill=%22%230a0a0a%22/><circle cx=%2296%22 cy=%2296%22 r=%2258%22 fill=%22none%22 stroke=%22%23e8c468%22 stroke-width=%221.8%22 opacity=%220.25%22/><circle cx=%2296%22 cy=%2296%22 r=%2243%22 fill=%22%23e8c468%22/><polygon points=%2286,82 113,96 86,110%22 fill=%22%230a0a0a%22/></svg>'>
+<link rel="apple-touch-icon" href='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22><rect width=%22192%22 height=%22192%22 rx=%2240%22 fill=%22%230a0a0a%22/><circle cx=%2296%22 cy=%2296%22 r=%2258%22 fill=%22none%22 stroke=%22%23e8c468%22 stroke-width=%221.8%22 opacity=%220.25%22/><circle cx=%2296%22 cy=%2296%22 r=%2243%22 fill=%22%23e8c468%22/><polygon points=%2286,82 113,96 86,110%22 fill=%22%230a0a0a%22/></svg>'>
+<link rel="manifest" href='data:application/manifest+json,{"name":"Glowfan Slideshow","short_name":"Glowfan","start_url":".","display":"standalone","background_color":"%230a0a0a","theme_color":"%230a0a0a","orientation":"any","icons":[{"src":"data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 512 512%22><rect width=%22512%22 height=%22512%22 fill=%22%230a0a0a%22/><circle cx=%22256%22 cy=%22256%22 r=%22155%22 fill=%22none%22 stroke=%22%23e8c468%22 stroke-width=%224.8%22 opacity=%220.25%22/><circle cx=%22256%22 cy=%22256%22 r=%22115%22 fill=%22%23e8c468%22/><polygon points=%22229,219 301,256 229,293%22 fill=%22%230a0a0a%22/></svg>","sizes":"512x512","type":"image/svg+xml","purpose":"any"},{"src":"data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 512 512%22><rect width=%22512%22 height=%22512%22 fill=%22%230a0a0a%22/><circle cx=%22256%22 cy=%22256%22 r=%22115%22 fill=%22%23e8c468%22/><polygon points=%22229,219 301,256 229,293%22 fill=%22%230a0a0a%22/></svg>","sizes":"512x512","type":"image/svg+xml","purpose":"maskable"}]}'>
 <style>
   :root {
     --bg: #0a0a0a;
@@ -344,14 +346,55 @@ const toast = (msg, ms = 2000) => {
 // ============ FILE HANDLING ============
 $('pickBtn').onclick = () => $('fileInput').click();
 
-$('fileInput').onchange = (e) => {
+$('fileInput').onchange = async (e) => {
   const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
-  files.forEach(f => {
-    const url = URL.createObjectURL(f);
-    state.images.push({ url, name: f.name });
-  });
-  refreshThumbs();
+  if (files.length === 0) return;
+
+  const startBtn = $('startBtn'), recordBtn = $('recordBtn');
+  startBtn.disabled = recordBtn.disabled = true;
+  $('fileCount').textContent = `이미지 처리 중... 0 / ${files.length}`;
+
+  let done = 0;
+  for (const f of files) {
+    try {
+      const url = await resizeImage(f, 1920, 0.85);
+      state.images.push({ url, name: f.name });
+    } catch (err) {
+      console.error('리사이즈 실패:', f.name, err);
+    }
+    done++;
+    $('fileCount').textContent = `이미지 처리 중... ${done} / ${files.length}`;
+    refreshThumbs();
+  }
+
   e.target.value = '';
+};
+
+// 이미지를 최대 maxDim 픽셀로 리사이즈해서 blob URL 반환
+function resizeImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      // 이미 작으면 그대로 사용 (오리엔테이션은 그대로 두면 EXIF 회전 문제 발생 가능)
+      const scale = Math.min(1, maxDim / Math.max(width, height));
+      const w = Math.round(width * scale);
+      const h = Math.round(height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(img.src);  // 원본 blob URL 즉시 해제
+        if (!blob) { reject(new Error('blob 생성 실패')); return; }
+        resolve(URL.createObjectURL(blob));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => reject(new Error('이미지 로드 실패'));
+    img.src = URL.createObjectURL(file);
+  });
 };
 
 function refreshThumbs() {
@@ -445,6 +488,11 @@ async function openPlayer(record) {
 function closePlayer() {
   pause();
   if (state.recording) stopRecording();
+  // 모든 슬라이드 이미지 src 비우기 (메모리 해제)
+  document.querySelectorAll('#stage img').forEach(img => {
+    img.removeAttribute('src');
+    img.src = '';
+  });
   $('player').classList.remove('active');
   $('start').style.display = 'flex';
   $('stage').innerHTML = '';
@@ -455,16 +503,15 @@ function buildSlides() {
   const stage = $('stage');
   stage.innerHTML = '';
   stage.className = `trans-${state.transition}` + (state.kenBurns ? ' kb' : '');
-  state.images.forEach((img) => {
+  // 빈 슬라이드만 미리 생성 (lazy loading — 실제 src는 showSlide에서 할당)
+  state.images.forEach(() => {
     const slide = document.createElement('div');
     slide.className = 'slide';
     const el = new Image();
-    el.src = img.url;
     el.draggable = false;
     slide.appendChild(el);
     stage.appendChild(slide);
   });
-  // Set Ken Burns duration to slide duration
   document.documentElement.style.setProperty('--kb-dur', (state.duration / 1000) + 's');
 }
 
@@ -474,12 +521,37 @@ function showSlide(i, immediate = false) {
   i = ((i % slides.length) + slides.length) % slides.length;
   state.index = i;
 
+  // Lazy loading: 현재, 이전, 다음 슬라이드의 이미지만 src 할당
+  // 나머지는 src 비워서 GPU 텍스처/디코딩 비트맵 해제
+  // (녹화 중에는 캔버스 캡처 안정성을 위해 모든 이미지 유지)
+  const keep = new Set();
+  if (state.recording) {
+    for (let k = 0; k < slides.length; k++) keep.add(k);
+  } else {
+    keep.add(i);
+    keep.add((i - 1 + slides.length) % slides.length);
+    keep.add((i + 1) % slides.length);
+  }
+
   slides.forEach((s, idx) => {
     s.classList.remove('active', 'prev');
     const img = s.querySelector('img');
     img.classList.remove('active-kb');
-    // Force reflow to restart animation
-    void img.offsetWidth;
+
+    if (keep.has(idx)) {
+      // 필요한 슬라이드만 src 할당 (이미 있으면 스킵)
+      if (img.src !== state.images[idx].url) {
+        img.src = state.images[idx].url;
+      }
+    } else {
+      // 사용 안 하는 슬라이드는 메모리 해제
+      if (img.src) {
+        img.removeAttribute('src');
+        img.src = '';
+      }
+    }
+
+    void img.offsetWidth;  // reflow for animation restart
     if (idx === i) {
       s.classList.add('active');
       if (state.kenBurns) img.classList.add('active-kb');
